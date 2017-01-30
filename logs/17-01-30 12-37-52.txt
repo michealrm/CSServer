@@ -1,0 +1,10 @@
+17/01/30 12:37:52: Checking config file for constants
+17/01/30 12:37:52: TIMEOUT_SECONDS = 60
+17/01/30 12:37:52: PORT = 6789
+17/01/30 12:37:53: Initiating server socket on port 6789
+17/01/30 12:37:53: Initiating socket pool
+17/01/30 12:37:53: Initiating CLI Handler
+17/01/30 12:37:53: Checking db properties for credentials
+17/01/30 12:37:55: [ERROR] Could not connect to SQL server -> Communications link failure
+
+The last packet sent successfully to the server was 0 milliseconds ago. The driver has not received any packets from the server.
