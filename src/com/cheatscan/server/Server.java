@@ -32,6 +32,7 @@ public class Server {
 		logger.log("Checking config file for constants");
 		try {
 			Configuration config = Server.configs.properties(new File("properties/config.properties"));
+			logger.createFile(new File(config.getString("log_folder")));
 			TIMEOUT_SECONDS = config.getInt("client_timeout_seconds");
 			logger.log("TIMEOUT_SECONDS = " + TIMEOUT_SECONDS);
 			PORT = config.getInt("port");

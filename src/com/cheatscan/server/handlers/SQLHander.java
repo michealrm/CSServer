@@ -31,7 +31,7 @@ public class SQLHander {
 		password = config.getString("password");
 		dbname = config.getString("dbname");
 		
-		Class.forName("com.mysql.cj.jdbc.Driver");
+		Class.forName("com.mysql.jdbc.Driver");
 		
 		conn = DriverManager.getConnection("jdbc:mysql://"+ host + ":" + port + "/" + dbname + "?useSSL=false", username, password);
 		stmt = conn.createStatement();
