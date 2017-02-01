@@ -32,8 +32,12 @@ public class CLIHander extends Thread {
 			int count = Server.pool.getActiveCount();
 			Server.logger.log("There " + (count != 1 ? "are " : "is ") + count + " active thread" + (Server.pool.getActiveCount() != 1 ? "s" : "") + " in the pool");
 			break;
+		case "help":
+			Server.logger.log("\"stop\" - stops the server\n"
+					+ "\"active\" - amount of active threads");
 		default:
-			Server.logger.log("\"" + line + "\" is not a command");
+			Server.logger.log("Unknown command \"" + line + "\". Please type \"help\" for a list of commands");
+			break;
 		}
 		if(loop)
 			waitForInput();

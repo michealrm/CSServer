@@ -5,14 +5,15 @@ import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Map;
 import java.util.TimeZone;
+import java.util.concurrent.TimeUnit;
 
+import com.cheatscan.server.Constants;
 import com.cheatscan.server.Server;
 import com.cheatscan.server.User;
 import com.cheatscan.server.ViolationType;
@@ -74,6 +75,7 @@ public class HandshakeProtocol implements Runnable {
 			return;
 		}
 		while(true) {
+			// TODO: Use Translator.validate to validate input
 			try {
 				String string = inFromClient.readLine();
 				if(string == null)
@@ -115,23 +117,23 @@ public class HandshakeProtocol implements Runnable {
 	            if(user != null && !verUpdated) {
 	            	switch(user.getIndex()) {
 	            		case 0: // Check system clock time
-	            			ViolationType time = ViolationType.SUSPICIOUS_TIME;
+	            			ViolationType vtTime = ViolationType.SUSPICIOUS_TIME;
 	            			
 	            			// Expected input: "hh:mm:ss MM/dd/yyyy"
-	            			Object[] objects = null;
-	            			try {
-	            				objects = Translator.regexToObject(in, "%\\d{2}%:%\\d{2}%:%\\d{2}% %\\d{2}%\\/%\\d{2}%\\/%\\d{4}%");
-	            			}
-	            			catch(IOException e) {
-	            				Server.vHandler.onUnexpectedInput(ViolationType.SUSPICIOUS_TIME, in, user, socket);
+	            			if(!Translator.validate(in, "\\d{2}:\\d{2}:\\d{2} \\d{2}\\/\\d{2}\\/\\d{4}", 1)) {
+	            				Server.vHandler.onUnexpectedInput(vtTime, in, user, socket);
 	            				break;
 	            			}
-	            			int hour = (int)objects[0];
-	            			int min = (int)objects[1];
-	            			int sec = (int)objects[2];
-	            			int month = (int)objects[3];
-	            			int day = (int)objects[4];
-	            			int year = (int)objects[5];
+	            			ArrayList<String> obj = Translator.getMatches(in, "\\d{4}|\\d{2}");
+	            			int hour = Integer.parseInt(obj.get(0));
+	            			int min = Integer.parseInt(obj.get(1));
+	            			int sec = Integer.parseInt(obj.get(2));
+	            			int month = Integer.parseInt(obj.get(3));
+	            			int day = Integer.parseInt(obj.get(4));
+	            			int year = Integer.parseInt(obj.get(5));
+	            			
+	            			Calendar local = Calendar.getInstance();
+	            			local.set(year, month, day, hour, min, sec);
 	            			
 	            			CityResponse response = null;
 	            			try {
@@ -142,35 +144,55 @@ public class HandshakeProtocol implements Runnable {
 	            				break;
 	            			}
 	            			Calendar location = Calendar.getInstance(TimeZone.getTimeZone(response.getLocation().getTimeZone()));
-	            			int ipHour = location.get(Calendar.HOUR_OF_DAY);
-	            			int ipMin = location.get(Calendar.MINUTE);
-	            			int ipSec = location.get(Calendar.SECOND);
-	            			int ipMonth = location.get(Calendar.MONTH + 1);
-	            			int ipDay = location.get(Calendar.DAY_OF_MONTH);
-	            			int ipYear = location.get(Calendar.YEAR);
 	            			
-	            			int diffHour = ipHour - hour;
-	            			int diffMin = ipMin - min;
-	            			int diffSec = ipSec - sec;
-	            			int diffMonth = ipMonth - month;
-	            			int diffDay = ipDay - day;
-	            			int diffYear = ipYear - year;
-	            			
-	            			// TODO: Calculate violations with the time difference
+	            			long difference = location.getTimeInMillis() - local.getTimeInMillis();
+	            			if(difference > Constants.SUSPICIOUS_TIME_THRESHOLD) {
+	            				boolean detectedInEventLog = false;
+	            				// Check event log
+	            				String sb = "";
+	            				long dDays = TimeUnit.MILLISECONDS.toDays(difference);
+	            				long dHours = TimeUnit.MILLISECONDS.toHours(difference);
+	            				long dMins = TimeUnit.MILLISECONDS.toMinutes(difference);
+	            				long dSeconds = TimeUnit.MILLISECONDS.toSeconds(difference);
+	            				if(dDays != 0) {
+	            					sb += dDays + " day";
+	            					if(dDays != 1)
+	            						sb += "s, ";
+	            					else
+	            						sb += ", ";
+	            				}
+	            				if(dHours != 0) {
+	            					sb += dHours + " hour";
+	            					if(dHours != 1)
+	            						sb += "s, ";
+	            					else
+	            						sb += ", ";
+	            				}
+	            				if(dMins != 0) {
+	            					sb += dMins + " minute";
+	            					if(dMins != 1)
+	            						sb += "s, ";
+	            					else
+	            						sb += ", ";
+	            				}
+	            				sb += dSeconds + " second" + (dSeconds == 1 ? "" : "s");
+	            				Server.vHandler.onViolation(vtTime, "Time is " + (difference >= 0 ? "positively" : "negatively") + " offset by " + sb, "Local machine time did not coordinate with the real time.", detectedInEventLog ? 1.0 : 5.0, 1.0, user, socket);
+	            			}
 	            			
 	            			user.setIndex(user.getIndex()+1);
-	            			
-	            			break;
-	            			
-	            		case 2: // CHEAT.CHECKSUM
-	            			ViolationType type;
 	            			
 	            			break;
 	            			
 	            		case 111: // Send heuristic.dll (scan whole system/dll with all the blacklists)
 	            			// Send client DOS blacklist via TCP
 	            			// Reserved for SUSPICIOUS.HEURISTIC (event log maybe?, event log for event id 1)
-	            		default: // Checks malicious package names in JVM
+	            		case 5: // Checks malicious package names in JVM
+	            			// Expected input: "package1","package2","package3","package4"
+	            			if(!Translator.validate(in, "(?<=(?:^|,)\")(?:[^\"]|\"\")+", -1)) {
+	            				Server.vHandler.onUnexpectedInput(ViolationType.CHEAT_HEURISTIC, in, user, socket);
+	            				break;
+	            			}
+	            			ArrayList<String> cLines = Translator.getMatches(in, "(?<=(?:^|,)\")(?:[^\"]|\"\")+");
                    		 String[] clientLines = in.split(","); // Check to make sure this isn't BS
                    		 Map check;
                    		 boolean detActive = false;
