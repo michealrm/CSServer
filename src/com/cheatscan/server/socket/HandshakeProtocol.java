@@ -13,6 +13,8 @@ import java.util.Map;
 import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.commons.collections.map.CaseInsensitiveMap;
+
 import com.cheatscan.server.Constants;
 import com.cheatscan.server.Server;
 import com.cheatscan.server.User;
@@ -22,6 +24,9 @@ import com.cheatscan.server.util.Translator;
 import com.esotericsoftware.yamlbeans.YamlReader;
 import com.maxmind.geoip2.exception.GeoIp2Exception;
 import com.maxmind.geoip2.model.CityResponse;
+
+import net.chris54721.openmcauthenticator.OpenMCAuthenticator;
+import net.chris54721.openmcauthenticator.exceptions.RequestException;
 
 public class HandshakeProtocol implements Runnable {
 
@@ -35,6 +40,7 @@ public class HandshakeProtocol implements Runnable {
 	private ArrayList<SocketInputEvent> events;
 	private boolean verified;
 	private YamlReader reader;
+	private BufferedReader inFromClient;
 	
 	private User user;
 	
@@ -62,7 +68,7 @@ public class HandshakeProtocol implements Runnable {
 	}
 
 	public void run() {
-		BufferedReader inFromClient = null;
+		inFromClient = null;
 		try {
 			inFromClient = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 		} catch (Exception e) {
@@ -75,24 +81,12 @@ public class HandshakeProtocol implements Runnable {
 			return;
 		}
 		while(true) {
-			// TODO: Use Translator.validate to validate input
 			try {
-				String string = inFromClient.readLine();
-				if(string == null)
-					throw new Exception();
-				String in;
-				boolean insecure = false;
-				if(!string.startsWith(INSECURE) && !verified)
-					throw new Exception();
-				if(string.startsWith(INSECURE)) {
-					insecure = true;
-					in = string.substring(1);
-				}
-				else
-					in = AES.decrypt(string, key); // Should always be verified, thus we should always have a key
-	            
+				
+				String in = getInput();
+				
 				boolean verUpdated = false;
-	            if(!verified && insecure) {
+	            if(!verified) {
 	            	// Update verification
 	            	if(in.contains(DELIMETER) && in.split(DELIMETER).length == 2) {
 	            		String[] userInput = in.split(DELIMETER);
@@ -102,12 +96,19 @@ public class HandshakeProtocol implements Runnable {
 	            			verified = true;
 	            			verUpdated = true;
 	            			Server.logger.socketLog(Server.getSocketIndex(socket)+1, "Verified user with UUID: \"" + user.getUUID() + "\"");
-	            			// Send scan.dll here
 	            		}
+	            		else {
+	            			statusFail();
+	            			continue;
+	            		}
+	            	}
+	            	else {
+	            		statusFail();
+	            		continue;
 	            	}
 	            }
 				//String in = string;
-	            Server.logger.socketLog(Server.getSocketIndex(socket)+1, "[in] " + (insecure ? "[INSECURE] " : "") + in);
+	            Server.logger.socketLog(Server.getSocketIndex(socket)+1, "[in] " + in);
 	            for(SocketInputEvent e : events)
 	            	e.onInput(in, this);
 	            
@@ -116,7 +117,43 @@ public class HandshakeProtocol implements Runnable {
 	            ////////////////
 	            if(user != null && !verUpdated) {
 	            	switch(user.getIndex()) {
-	            		case 0: // Check system clock time
+	            		case 0: // Check arguments
+	            			ViolationType vtArgs = ViolationType.SUSPICIOUS_VALIDATE;
+	            			
+	            			// Expected input: minecraft args
+	            			if(!Translator.validate(in, "--accessToken .{32}|--uuid .{32}", 2)) {
+	            				Server.vHandler.onUnexpectedInput(vtArgs, in, user, socket);
+	            				break;
+	            			}
+	            			ArrayList<String> argsObj = Translator.getMatches(in, "--accessToken .{32}|--uuid .{32}");
+	            			String token, uuid;
+	            			if(argsObj.get(0).startsWith("--accessToken")) {
+	            				token = argsObj.get(0).substring(argsObj.get(0).indexOf(' ')+1);
+	            				uuid = argsObj.get(1).substring(argsObj.get(1).indexOf(' ')+1);
+	            			}
+	            			else {
+	            				uuid = argsObj.get(0).substring(argsObj.get(0).indexOf(' ')+1);
+	            				token = argsObj.get(1).substring(argsObj.get(1).indexOf(' ')+1);
+	            			}
+	            			if(!user.getUUID().equals(uuid)) {
+	            				Server.vHandler.onViolation(ViolationType.SUSPICIOUS_VALIDATE, "Expected " + user.getUUID() + " but received " + uuid, "Could not validate the client", 1.0, 1.0, user, socket);
+	            				break;
+	            			}
+	            			boolean valid;
+	            			try {
+	            				  valid = OpenMCAuthenticator.validate(token);
+	            			} catch (RequestException e) {
+	            				Server.logger.scanLog(Server.getSocketIndex(socket)+1, user, "Skipping token validation");
+	            				user.setIndex(user.getIndex()+1);
+	            				break;
+	            			}
+	            			if(!valid) {
+	            				Server.vHandler.onViolation(ViolationType.SUSPICIOUS_VALIDATE, "Authentication token not valid", "Could not validate the client", 1.0, 1.0, user, socket);
+	            				break;
+	            			}
+	            			break;
+	            		case 1:
+	            		case 2: // Check system clock time
 	            			ViolationType vtTime = ViolationType.SUSPICIOUS_TIME;
 	            			
 	            			// Expected input: "hh:mm:ss MM/dd/yyyy"
@@ -234,12 +271,34 @@ public class HandshakeProtocol implements Runnable {
 		}
 	}
 	
+	private String getInput() throws Exception {
+		String string = inFromClient.readLine();
+		if(string == null)
+			throw new Exception();
+		String in;
+		if(!string.startsWith(INSECURE) && !verified)
+			throw new Exception();
+		if(string.startsWith(INSECURE))
+			in = string.substring(1);
+		else
+			in = AES.decrypt(string, key); // Should always be verified, thus we should always have a key
+        return in;
+	}
+	
 	public void addSocketInputEvent(SocketInputEvent event) {
 		events.add(event);
 	}
 	
 	public boolean removeSocketInputEvent(SocketInputEvent event) {
 		return events.remove(event);
+	}
+	
+	public void statusOk() throws IOException {
+		out.writeBytes("0");
+	}
+	
+	public void statusFail() throws IOException {
+		out.writeBytes("-1");
 	}
 	
 	public void printRaw(String msg) throws IOException {
