@@ -1,0 +1,5 @@
+17/02/18 23:23:11: Checking config file for constants
+17/02/18 23:23:11: TIMEOUT_SECONDS = 60
+17/02/18 23:23:11: PORT = 6789
+17/02/18 23:23:11: Initiating server socket on port 6789
+17/02/18 23:23:11: Could not listen on port 6789

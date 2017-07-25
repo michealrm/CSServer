@@ -7,13 +7,12 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
-
-import org.apache.commons.collections.map.CaseInsensitiveMap;
 
 import com.cheatscan.server.Constants;
 import com.cheatscan.server.Server;
@@ -84,13 +83,17 @@ public class HandshakeProtocol implements Runnable {
 			try {
 				
 				String in = getInput();
-				
+
 				boolean verUpdated = false;
 	            if(!verified) {
 	            	// Update verification
 	            	if(in.contains(DELIMETER) && in.split(DELIMETER).length == 2) {
 	            		String[] userInput = in.split(DELIMETER);
-	            		user = Server.sql.getUser(new User(userInput[0], userInput[1])); // uuid:token
+	            		String uuid = "";
+	            		if(userInput[0].matches("--uuid .* ")) {
+	            			
+	            		}
+	            		user = Server.sql.getUser(new User(uuid, userInput[1])); // uuid:token
 	            		if(user != null) {
 	            			key = user.getSecret();
 	            			verified = true;
@@ -272,9 +275,9 @@ public class HandshakeProtocol implements Runnable {
 	}
 	
 	private String getInput() throws Exception {
-		String string = inFromClient.readLine();
-		if(string == null)
-			throw new Exception();
+		char[] buffer = new char[1024];
+		int bytesRead = inFromClient.read(buffer);
+		String string = new String(buffer, 0, bytesRead);
 		String in;
 		if(!string.startsWith(INSECURE) && !verified)
 			throw new Exception();
